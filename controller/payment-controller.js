@@ -1,62 +1,27 @@
+import {stripe ,CLIENT_URL} from '../index.js'
 
-import paytmChecksum from 'paytmchecksum'
-import { paytmParams, paytmMerchantKey } from '../index.js'
+export const stripePay = async (req, res) => {
 
-import formidable from 'formidable';
-import https from 'https'
-export const addPaymentGateway = async (req,res) =>{
-    try{
-        let paytmchecksum = await paytmChecksum.generateSignature(paytmParams, paytmMerchantKey);
-        let params = {
-            ...paytmParams,
-            'CHECKSUMHASH': paytmchecksum
-        }
-        console.log(params);
-        res.status(200).json(params);
-    }catch(error){
-        res.status(500).json({error: error.message});
+  const line_items = req.body.cartItems.map((item)=>{
+    return{
+      // Provide the exact Price ID (for example, pr_1234) of the product you want to sell
+      price_data:{
+        currency: "inr",
+        product_data:{
+          name: item.title.longTitle.substring(0,20)+'...',
+          images: [item.url],
+          description: item.description.substring(0,50)+'...'
+        },
+        unit_amount: item.price.cost*100,
+      },
+      quantity: item.quantity
     }
-}
-
-export const paytmResponse = (req,res)=>{
-    const form = new formidable.IncomingForm();
-    let paytmchecksum = req.body.CHECKSUMHASH;
-    delete req.body.CHECKSUMHASH;
-
-    let isVerifySignature = paytmChecksum.verifySignature(req.body, paytmMerchantKey, paytmchecksum);
-    if(isVerifySignature){
-        let paytmParams = {};
-        paytmParams['MID'] = req.body.MID;
-        paytmParams['ORDER_ID'] = req.body.ORDERID;
-
-        paytmChecksum.generateSignature(paytmParams, paytmMerchantKey).then(function(checksum){
-            paytmParams['CHECKSUMHASH']=checksum;
-
-            let post_data = JSON.stringify(paytmParams);
-            let options = {
-                hostname: 'securegw-stage.paytm.in',
-                port: 443,
-                path: '/order/status',
-                header:{
-                    'Content-Type': 'application/json',
-                    'Content-Length': post_data.length
-                }
-            }
-            let res='';
-            let post_req = https.request(options, function(post_res){
-                post_res.on('data',function(chunk){
-                    res+=chunk;
-                })
-
-                post_res.on('end',function(){
-                    let result = JSON.parse(res);
-                    response.redirect('http://localhost:3000/')
-                })
-            })
-            post_req.write(post_data);
-            post_req.end();
-        })
-    }else{
-        console.log('Checksum mismatched')
-    }
+  })
+  const session = await stripe.checkout.sessions.create({
+    line_items,
+    mode: 'payment',
+    success_url: `${CLIENT_URL}/checkout-success`,
+    cancel_url: `${CLIENT_URL}/cart`,
+  });
+  res.send({url:session.url});
 }
